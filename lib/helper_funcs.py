@@ -33,10 +33,6 @@ class MetricsComputation():
 
 
     def compute_aurc_eaurc(self):
-        # Convert predictions and targets to numpy arrays
-        # preds = preds.cpu().detach().numpy()
-        # targets = targets.cpu().detach().numpy()
-
         # Sort predictions and targets based on maximum softmax probabilities in descending order
         sorted_preds, indices = torch.sort(self.preds, descending=True)
         sorted_labels = self.targets[indices]
@@ -95,16 +91,25 @@ def accuracy_func(y_pred, y_true):
 
 
 
-def select_model(name: str = None) -> torch.nn.Module:
-    if name == 'resnet':
-        model = ''
-    elif name == 'densenet':
-        model = ''
-    else:
-        weights = torchvision.models.VGG16_Weights.DEFAULT
-        model = torchvision.models.vgg16(weights=weights)
+def select_loss_func(name: str, crl_loss_fn = None):
+    """
+    ========================================================
+    Returns a PyTorch loss function based on the given name.
+    ========================================================
 
-    return model
+    Args:
+        name (str): The name of the loss function to use.['baseline', 'crl']
+        crl_loss_fn (callable, optional): Correctness ranking loss function
+
+    Returns:
+        A PyTorch loss function object.
+    """
+
+    if name == 'baseline':
+        loss_fn = torch.nn.CrossEntropyLoss()
+    elif name == 'crl':
+        loss_fn = torch.nn.CrossEntropyLoss + crl_loss_fn
+    return loss_fn
 
 
 

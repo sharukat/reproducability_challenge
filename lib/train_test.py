@@ -145,17 +145,30 @@ class TrainTestModel():
           
             model.load_state_dict(checkpoint['model'])           # weights
             optimizer.load_state_dict(checkpoint['optimizer'])   # optimizer
-            scheduler.load_state_dict(checkpoint['scheduler'])       # lr_scheduler
-            # criterion = checkpoint['loss']                                  # loss
+            scheduler.load_state_dict(checkpoint['scheduler'])   # lr_scheduler
+ 
+            for epoch in range(resume_epoch, epochs):
+                train_loss, train_acc = self.train_step(model=model,
+                                                        dataloader=train_dataloader,
+                                                        loss_fn=loss_fn,
+                                                        optimizer=optimizer,
+                                                        scheduler=scheduler,
+                                                        device=device)
 
-            # return model.state_dict
-            # for epoch in range(resume_epoch+1, epochs):
-            #     train_loss, train_acc = self.train_step(model=model,
-            #                                             dataloader=train_dataloader,
-            #                                             loss_fn=criterion,
-            #                                             optimizer=optimizer,
-            #                                             scheduler=scheduler,
-            #                                             device=device)
+                print(
+                f"Epoch: {epoch+1} | "
+                f"train_loss: {train_loss:.4f} | "
+                f"train_acc: {train_acc:.4f}% | "
+                )
+
+                results["train_loss"].append(train_loss)
+                results["train_acc"].append(train_acc)
+
+                # Save model
+                if epoch+1 in [50,100,150,200,250,300]:
+                  save_model(model_name, dataset, model, optimizer, scheduler, epoch)
+
+            return results
 
         else:
             for epoch in tqdm(range(epochs)):
