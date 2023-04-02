@@ -1,4 +1,6 @@
 import torch
+import numpy as np
+import torch.nn.functional as F
 from sklearn.preprocessing import MinMaxScaler
 
 
@@ -17,34 +19,58 @@ class CRL:
     xxx
     """
 
-    def __init__(self, preds, tr_datapoints):
-        self.preds = preds
-        self.correctness = torch.zeros((tr_datapoints), dtype=torch.float32)
-        self.confidences = torch.zeros((tr_datapoints), dtype=torch.float32)
-        self.scaler = MinMaxScaler(feature_range=(0, 1))
+    def __init__(self, ranking_criterion, tr_datapoints):
+        self.ranking_criterion = ranking_criterion
+        self.max_correctness = 0.0
+        self.correctness = np.zeros((tr_datapoints))
+        self.confidences = np.zeros((tr_datapoints))
 
-    def negative_entropy(self):
-        softmax = torch.softmax(self.preds, dim=1)
-        logrithmic_softmax = torch.log_softmax(self.preds, dim=1)
-        neg_entropy = -torch.sum(softmax * logrithmic_softmax, dim=1)
-        normalized_confidence = MinMaxScaler().fit_transform(neg_entropy)
-        return normalized_confidence
-
-    def normalization(self):
-        min_val = self.correctness.min()
-        max_val = float(self.max_correctness_val)
-        result = (self.)
-
+        
+    # ======================= Compute Target Margin =========================
     def compute_margin(self, index_1, index_2):
-        idx1_cumulative_corr = self.correctness[index_1].cpu()
-        idx2_cumulative_corr = self.correctness[index_2].cpu()
+        index_1 = np.array(index_1)
+        index_2 = index_2.cpu().detach().numpy()
+
+        idx1_cum_corr = self.correctness[index_1].cpu()
+        idx2_cum_corr = self.correctness[index_2].cpu()
         
         # Normalizing
-        idx1_cumulative_corr = self.scaler.fit_transform(idx1_cumulative_corr)
-        idx2_cumulative_corr = self.scaler.fit_transform(idx2_cumulative_corr)
+        scaler = MinMaxScaler((self.correctness.min(), self.max_correctness))
+        idx1_cum_corr = scaler.fit_transform(idx1_cum_corr)
+        idx2_cum_corr = scaler.fit_transform(idx2_cum_corr)
 
 
-def max_class_prob(data):
-    output = torch.nn.Softmax(dim=1)(data)
-    max_prob, max_class = torch.max(output, dim=1)
-    return max_prob
+    # ============== Compute Confidence using Margin Estimator ===============
+    def margin(self, logits):
+        top_probs, _  = torch.topk(F.softmax(logits, dim=1), 2, dim=1)
+        confidence    = top_probs[:, 0] - top_probs[:, 1]
+        return confidence
+        
+
+    # ================== Compute Correctness Ranking Loss ====================
+    def correctness_ranking_loss(self, logits, idx):
+        confidence = self.margin(logits)
+
+        rank_1  = confidence
+        rank_2  = torch.roll(confidence, -1)
+
+        index_1 = idx
+        index_2 = torch.roll(index_1, -1)
+        target, margin = self.compute_margin(index_1, index_2)
+        rank_2  += margin / (target + 1e-10)
+
+        crl = self.ranking_criterion(rank_1, rank_2, target)
+        return crl
+
+
+class Correctness(CRL):
+    def increment_max_correctness(self, current_epoch):
+        super().max_correctness += int(current_epoch > 1)
+
+    def update(self, data_idx, correctness, logits):
+        confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
+        super().correctness[data_idx] += correctness
+        super().confidence[data_idx] = confidence
+
+
+

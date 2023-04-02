@@ -45,8 +45,8 @@ def loader(dataset_name, batch_size):
             transform=test_tf,
             target_transform=None)
 
-    train_loader = DataLoader(train, batch_size=batch_size, shuffle=True, num_workers=4)
-    test_loader = DataLoader(test, batch_size=batch_size, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train, batch_size=batch_size, shuffle=True, num_workers=2)
+    test_loader = DataLoader(test, batch_size=batch_size, shuffle=False, num_workers=2)
 
     print(f"Length of train dataloader: {len(train_loader)} batches of {batch_size}")
     print(f"Length of test dataloader: {len(test_loader)} batches of {batch_size}")
