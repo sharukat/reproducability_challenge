@@ -3,11 +3,11 @@ import torch
 from tqdm.auto import tqdm
 from typing import Dict, List, Tuple
 import torch.nn.functional as F
-import sys
-sys.path.append('/content/drive/MyDrive/NN_Course_Project/project/lib')
+from termcolor import colored
 
-from helper_funcs import accuracy_func, save_model
-from crl_loss import CRL
+from lib.helper_funcs import accuracy_func, save_model
+from lib.crl_loss import CRL
+import lib.global_settings as settings
 
 class TrainTestModel():
     def __init__(self):
@@ -25,10 +25,8 @@ class TrainTestModel():
         model.train()
         train_loss, train_acc = 0, 0
 
-        # Defining losses
-        CEL = torch.nn.CrossEntropyLoss
-        MRL = torch.nn.MarginRankingLoss(margin=0.0)
-        CRL_LOSS = CRL(ranking_criterion = MRL)
+        if is_CRL:
+          CRL_LOSS = CRL(ranking_criterion = settings.MRL, tr_datapoints = len(dataloader.dataset))
 
         for im, label in dataloader:
             idx = [i for i, data in enumerate(label)]
@@ -37,9 +35,9 @@ class TrainTestModel():
 
             if is_CRL:
               crl = CRL_LOSS.correctness_ranking_loss(logits, idx)
-              loss = CEL(logits, label) + crl
+              loss = settings.CEL(logits, label) + crl
             else:
-              loss = CEL(logits, label)
+              loss = settings.CEL(logits, label)
 
             train_loss += loss.item()
             optimizer.zero_grad()
@@ -49,8 +47,11 @@ class TrainTestModel():
 
             # Calculate and accumulate accuracy metric across all batches
             preds = torch.argmax(torch.softmax(logits, dim=1), dim=1)
-            # train_acc += torch.eq(label, pred_class).sum().item()/len(pred_class)
             train_acc += accuracy_func(preds, label)
+
+            if is_CRL:
+              correctness = torch.eq(preds, label).int()
+              CRL_LOSS.update_correctness(idx, correctness, logits)
 
         if is_CRL:
           CRL_LOSS.increment_max_correctness(epoch)
@@ -64,7 +65,8 @@ class TrainTestModel():
                   model: torch.nn.Module, 
                   dataloader: torch.utils.data.DataLoader, 
                   loss_fn: torch.nn.Module,
-                  device: torch.device) -> Tuple[float, float]:
+                  device: torch.device, 
+                  is_CRL: bool = False) -> Tuple[float, float]:
         """
         ===================================================================
         Tests the model for a single epoch.
@@ -85,16 +87,31 @@ class TrainTestModel():
         binary_labels = []
         confidence_scores = []
 
+        # Defining losses
+        CEL = torch.nn.CrossEntropyLoss()
+        if is_CRL:
+          MRL = torch.nn.MarginRankingLoss(margin=0.0)
+          CRL_LOSS = CRL(ranking_criterion = MRL)
+
         with torch.inference_mode():
             for batch, (X, labels) in enumerate(dataloader):
+                idx = [i for i, X in enumerate(labels)]
                 X, labels = X.to(device), labels.to(device)
                 test_logits = model(X)
-                loss = loss_fn(test_logits, labels)
+
+                if is_CRL:
+                  crl = CRL_LOSS.correctness_ranking_loss(test_logits, idx)
+                  loss = CEL(test_logits, labels) + crl
+                else:
+                  loss = CEL(test_logits, labels)
+
+                # loss = loss_fn(test_logits, labels)
                 test_loss += loss.item()
 
                 # Calculate and accumulate accuracy
                 softmax = torch.softmax(test_logits, dim=1)
                 test_preds = torch.argmax(softmax, dim=1)
+                # test_acc += test_preds.eq(labels).sum()
                 test_acc += accuracy_func(test_preds, labels)
 
                 for p, t in zip(test_preds, labels):
@@ -138,7 +155,6 @@ class TrainTestModel():
         train_dataloader: A DataLoader instance for the model to be trained on.
         test_dataloader : A DataLoader instance for the model to be tested on.
         optimizer       : A PyTorch optimizer to help minimize the loss function.
-        loss_fn         : A PyTorch loss function to calculate loss on both datasets.
         epochs          : An integer indicating how many epochs to train for.
         device          : A target device to compute on (e.g. "cuda" or "cpu").
 
@@ -148,53 +164,31 @@ class TrainTestModel():
         each epoch.
         """
 
-        torch.manual_seed(42)
-
-        # Make sure model on target device
         model.to(device)
+        initial_epoch = 0
 
-        # Initiate training
         if resume_epoch is not None:
-            model.load_state_dict(checkpoint['model'])           # weights
-            optimizer.load_state_dict(checkpoint['optimizer'])   # optimizer
-            scheduler.load_state_dict(checkpoint['scheduler'])   # lr_scheduler
+          initial_epoch = resume_epoch
 
-            for epoch in range(resume_epoch, epochs):
-                train_loss, train_acc = self.train_step(model=model,
-                                                        dataloader=train_dataloader,
-                                                        optimizer=optimizer,
-                                                        scheduler=scheduler,
-                                                        device=device,
-                                                        epoch=epoch, 
-                                                        is_CRL=is_CRL)
-
-                print(
-                f"Epoch: {epoch+1} | "
-                f"train_loss: {train_loss:.4f} | "
-                f"train_acc: {train_acc:.4f}% | "
-                )
-
-                # Save model
-                if epoch+1 in [50,100,150,200,250,300]:
-                  save_model(model_name, dataset, model, optimizer, scheduler, epoch)
-
-        else:
-            for epoch in tqdm(range(epochs)):
-                train_loss, train_acc = self.train_step(model=model,
-                                                        dataloader=train_dataloader,
-                                                        optimizer=optimizer,
-                                                        scheduler=scheduler,
-                                                        device=device,
-                                                        epoch=epoch,  
-                                                        is_CRL=is_CRL)
-            
-                print(
-                f"Epoch: {epoch+1} | "
-                f"train_loss: {train_loss:.4f} | "
-                f"train_acc: {train_acc:.4f}% | "
-                )
+        for epoch in tqdm(range(initial_epoch, epochs)):
+            train_loss, train_acc = self.train_step(model=model,
+                                                    dataloader=train_dataloader,
+                                                    optimizer=optimizer,
+                                                    scheduler=scheduler,
+                                                    device=device,
+                                                    epoch=epoch,  
+                                                    is_CRL=is_CRL)
+        
+            print(
+            f"{colored('Epoch', 'blue')}: {epoch+1} | "
+            f"train_loss: {train_loss:.4f} | "
+            f"train_acc: {train_acc:.4f}% | "
+            )
 
 
-                # Save model
-                if epoch+1 in [50,100,150,200,250,300]:
-                  save_model(model_name, dataset, model, optimizer, scheduler, epoch)
+            # Save model
+            if epoch+1 in settings.CHECKPOINT_EPOCHS:
+              if is_CRL:
+                save_model(model_name, dataset, model, optimizer, scheduler, epoch, is_CRL=True)
+              else:
+                save_model(model_name, dataset, model, optimizer, scheduler, epoch)

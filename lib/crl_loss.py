@@ -21,23 +21,47 @@ class CRL:
 
     def __init__(self, ranking_criterion, tr_datapoints):
         self.ranking_criterion = ranking_criterion
-        self.max_correctness = 0.0
+        self.max_correctness = 1
         self.correctness = np.zeros((tr_datapoints))
         self.confidences = np.zeros((tr_datapoints))
 
         
     # ======================= Compute Target Margin =========================
     def compute_margin(self, index_1, index_2):
-        index_1 = np.array(index_1)
+        index_1 = index_1.cpu().detach().numpy()
         index_2 = index_2.cpu().detach().numpy()
+        idx1_cum_corr = self.correctness[index_1].reshape(-1,1)
+        idx2_cum_corr = self.correctness[index_2].reshape(-1,1)
 
-        idx1_cum_corr = self.correctness[index_1].cpu()
-        idx2_cum_corr = self.correctness[index_2].cpu()
-        
         # Normalizing
         scaler = MinMaxScaler((self.correctness.min(), self.max_correctness))
         idx1_cum_corr = scaler.fit_transform(idx1_cum_corr)
         idx2_cum_corr = scaler.fit_transform(idx2_cum_corr)
+
+        target_1 = idx1_cum_corr[: len(index_1)]
+        target_2 = idx2_cum_corr[: len(index_2)]
+
+        greater_vals = np.array(target_1 > target_2, dtype='float')
+        lesser_vals = np.array(target_1 < target_2, dtype='float') * -1
+
+        target = greater_vals + lesser_vals
+        target = target.ravel()
+        target = torch.from_numpy(target).float().cuda()
+
+        margin = abs(target_1 - target_2)
+        margin = margin.ravel()
+        margin = torch.from_numpy(margin).float().cuda()
+
+        return target, margin
+
+    def increment_max_correctness(self, current_epoch):
+        self.max_correctness += int(current_epoch+1 > 1)
+
+    def update_correctness(self, data_idx, correctness, logits):
+        data_idx = np.array(data_idx)
+        confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
+        self.correctness[data_idx] += correctness.cpu().detach().numpy()
+        self.confidences[data_idx] = confidence.cpu().detach().numpy()
 
 
     # ============== Compute Confidence using Margin Estimator ===============
@@ -50,27 +74,26 @@ class CRL:
     # ================== Compute Correctness Ranking Loss ====================
     def correctness_ranking_loss(self, logits, idx):
         confidence = self.margin(logits)
-
         rank_1  = confidence
         rank_2  = torch.roll(confidence, -1)
-
-        index_1 = idx
+        index_1 = torch.tensor(idx)
         index_2 = torch.roll(index_1, -1)
         target, margin = self.compute_margin(index_1, index_2)
         rank_2  += margin / (target + 1e-10)
-
         crl = self.ranking_criterion(rank_1, rank_2, target)
         return crl
 
 
-class Correctness(CRL):
-    def increment_max_correctness(self, current_epoch):
-        super().max_correctness += int(current_epoch > 1)
+# class Correctness(CRL):
+#     def __init__(self):
+#       super().__init__()
+#     def increment_max_correctness(self, current_epoch):
+#         self.max_correctness += int(current_epoch+1 > 1)
 
-    def update(self, data_idx, correctness, logits):
-        confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
-        super().correctness[data_idx] += correctness
-        super().confidence[data_idx] = confidence
+#     def update_correctness(self, data_idx, correctness, logits):
+#         confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
+#         self.correctness[data_idx] += correctness
+#         self.confidence[data_idx] = confidence
 
 
 
