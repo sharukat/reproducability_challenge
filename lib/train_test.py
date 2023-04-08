@@ -1,5 +1,5 @@
 import torch
-
+import numpy as np
 from tqdm.auto import tqdm
 from typing import Dict, List, Tuple
 import torch.nn.functional as F
@@ -81,11 +81,13 @@ class TrainTestModel():
         Returns:
         A tuple of testing loss and testing accuracy metrics.
         """
-
+        model.to(device)
         model.eval() 
         test_loss, test_acc = 0, 0
         binary_labels = []
         confidence_scores = []
+        targets = []
+        xx=[]
 
         # Defining losses
         CEL = torch.nn.CrossEntropyLoss()
@@ -111,18 +113,19 @@ class TrainTestModel():
                 # Calculate and accumulate accuracy
                 softmax = torch.softmax(test_logits, dim=1)
                 test_preds = torch.argmax(softmax, dim=1)
-                # test_acc += test_preds.eq(labels).sum()
                 test_acc += accuracy_func(test_preds, labels)
 
                 for p, t in zip(test_preds, labels):
                     binary_labels.append(int(p == t))
 
-                confidence_scores.extend(softmax.cpu().detach().numpy())
+                softmax_np = softmax.cpu().detach().numpy()
+                confidence_scores.extend(np.max(softmax_np, 1))
+                targets.extend(labels.cpu().detach().numpy())
 
         # Adjust metrics to get average loss and accuracy per batch 
         test_loss = test_loss / len(dataloader)
         test_acc = test_acc / len(dataloader)
-        result = [test_loss, test_acc, test_preds, labels, binary_labels, confidence_scores]
+        result = [test_loss, test_acc, test_preds, targets, binary_labels, confidence_scores]
         return result
     
     

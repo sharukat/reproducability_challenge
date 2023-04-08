@@ -1,118 +1,59 @@
 import torch
 import torch.optim as optim
 import numpy as np
-from sklearn.metrics import auc, confusion_matrix, roc_curve, precision_recall_curve
+from sklearn.metrics import auc, confusion_matrix, roc_curve, precision_recall_curve, average_precision_score
 import torchvision
 from pathlib import Path
 import os
 
 from lib.m_vgg16 import VGG16
+from lib.m_resnet import ResNet110
 import lib.global_settings as settings
 
 
 class MetricsComputation():
     def __init__(self, results: list):
-        self.preds = results[2]
-        self.targets = results[3]
+        self.preds = np.array(results[-1])
+        self.targets = np.array(results[3])
         self.conf_vals = np.array(results[5])
         self.bn_labels = np.array(results[4])
-        
-
-    def compute_optimal_risk(self):
-        """Compute the optimal risk using predicted and target values.
-
-        Args:
-            preds (torch.Tensor): Predicted values after applying argmax on the output of softmax.
-            targets (torch.Tensor): True labels/target values.
-
-        Returns:
-            float: The calculated optimal risk.
-        """
-        incorr_count = (self.preds != self.targets).sum().item()
-        incorr_frac = incorr_count / len(self.preds) # fraction of incorrect predictions
-        optimal_risk = incorr_frac + (1 - incorr_frac) * np.log(1 - incorr_frac)
-        return optimal_risk
 
 
     def compute_aurc_eaurc(self):
-        # Sort predictions and targets based on maximum softmax probabilities in descending order
-        sorted_preds, indices = torch.sort(self.preds, descending=True)
-        sorted_labels = self.targets[indices]
-
+        sorted_preds = np.sort(self.preds)[::-1]
+        bn_labels = self.bn_labels[np.argsort(self.preds)[::-1]]
+        
         # Compute risk and coverage values
         risk_vals = []
         coverage_vals = []
         num_incorrect = 0
-        for i in range(len(sorted_labels)):
-            if sorted_labels[i] != 1:
-                num_incorrect += 1
+        for i in range(len(sorted_preds)):
+            if bn_labels[i] == 0:
+              num_incorrect += 1
             risk_vals.append(num_incorrect / (i+1))
-            coverage_vals.append((i+1) / len(sorted_labels))
+            coverage_vals.append((i+1) / len(sorted_preds))
 
         # Compute optimal risk value
-        optimal_risk = self.compute_optimal_risk()
-
+        optimal_risk = risk_vals[-1] + (1 - risk_vals[-1]) * np.log(1 - risk_vals[-1])
         # Compute area under the risk-coverage curve and excessive area under the risk-coverage curve
         aurc = np.trapz(risk_vals, coverage_vals)
         eaurc = aurc - optimal_risk
 
         return aurc, eaurc
 
-    def calc_aurc_eaurc(softmax, correct):
-        softmax = np.array(softmax)
-        correctness = np.array(correct)
-        softmax_max = np.max(softmax, 1)
-        sort_indices = np.argsort(softmax_max)[::-1]
-        sorted_softmax_max = softmax_max[sort_indices]
-        sorted_correctness = correctness[sort_indices]
-        num_incorrect = 0
-        risk_list = []
-        coverage_list = []
-        for i in range(len(sorted_correctness)):
-            if sorted_correctness[i] == 0:
-                num_incorrect += 1
-            risk = num_incorrect / (i+1)
-            coverage = (i+1) / len(sorted_correctness)
-            risk_list.append(risk)
-            coverage_list.append(coverage)
-        optimal_risk = (num_incorrect / len(sorted_correctness)) + \
-                      (1 - (num_incorrect / len(sorted_correctness))) * np.log(1 - (num_incorrect / len(sorted_correctness)))
-        aurc = np.trapz(risk_list, coverage_list)
-        eaurc = aurc - optimal_risk
-        print("AURC {0:.2f}".format(aurc*1000))
-        print("EAURC {0:.2f}".format(eaurc*1000))
-        return aurc, eaurc
-
-        
-    
-    def compute_pr_auc(self):
-        precision, recall, thresholds = precision_recall_curve(
-          self.bn_labels, np.max(self.conf_vals, 1))
-
-        pr_auc = auc(recall, precision)
-        return pr_auc
-
-    def compute_fpr_tpr(self):
-        fpr, tpr, thresholds = roc_curve(self.bn_labels, np.max(self.conf_vals, 1))
-        return fpr, tpr
-    
-
     def compute_metrics(self):
-        fpr, tpr = self.compute_fpr_tpr()
+        fpr, tpr, thresholds = roc_curve(self.bn_labels, self.preds)
         fpr_in_tpr_95 = fpr[np.argmin(np.abs(tpr-0.95))]
         aurc, eaurc = self.compute_aurc_eaurc()
-        pr_auc = self.compute_pr_auc()
-
-        return aurc, eaurc, fpr, fpr_in_tpr_95, pr_auc
+        pr_auc = average_precision_score(-1 * self.bn_labels + 1, -1 * self.preds)
 
 
+        return aurc, eaurc, fpr_in_tpr_95, pr_auc
 
 
 
 # Calculate accuracy (a classification metric)
 def accuracy_func(y_pred, y_true):
-    # y_pred = torch.tensor(y_pred)
-    # y_true = torch.tensor(y_true)
     correct = torch.eq(y_pred, y_true).sum().item() # torch.eq() calculates where two tensors are equal
     acc = (correct / len(y_true)) * 100 
     return acc
@@ -144,7 +85,7 @@ def load_model_opt_sch(model_name: str, num_classes: int):
     if model_name == 'vgg16':
       model = VGG16(num_classes)
     else:
-      pass
+      model = ResNet110(num_classes)
     
     optimizer = optim.SGD(
       model.parameters(), 
@@ -165,13 +106,10 @@ def save_model(
     model: torch.nn.Module, 
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler,
-    epoch: int, is_CRL:bool = False):
-    
-    MODEL_PATH = '/content/drive/MyDrive/NN_Course_Project/project/models'
-  
+    epoch: int, is_CRL:bool = False):  
 
-    if not os.path.exists(os.path.join(MODEL_PATH, checkpoint_dir)):
-        os.makedirs(os.path.join(MODEL_PATH, checkpoint_dir))
+    if not os.path.exists(os.path.join(settings.MODEL_PATH, checkpoint_dir)):
+        os.makedirs(os.path.join(settings.MODEL_PATH, checkpoint_dir))
 
 
 
@@ -182,17 +120,29 @@ def save_model(
     folder_name = 'crl_models'
     model_name = f"{checkpoint_dir}_{dataset}_{epoch+1}.pt"
     if is_CRL:
-      if not os.path.exists(os.path.join(MODEL_PATH, checkpoint_dir, folder_name)):
-        os.makedirs(os.path.join(MODEL_PATH, checkpoint_dir, folder_name))
-      MODEL_SAVE_PATH = os.path.join(MODEL_PATH, checkpoint_dir, folder_name, model_name)
+      if not os.path.exists(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name)):
+        os.makedirs(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name))
+      MODEL_SAVE_PATH = os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name, model_name)
     else:
-      MODEL_SAVE_PATH = os.path.join(MODEL_PATH, checkpoint_dir, model_name)
+      MODEL_SAVE_PATH = os.path.join(settings.MODEL_PATH, checkpoint_dir, model_name)
 
     # Save the model state dict
     print(f"\n===== Checkpoint saved at epoch {epoch+1} =====")
     torch.save(obj=to_save, f=MODEL_SAVE_PATH)
 
-        
+
+def load_trained_model(model_name:str, dataset:str, num_classes: int, is_CRL: bool = False):
+    if is_CRL:
+      path = os.path.join(settings.MODEL_PATH, f"{model_name}/crl_models", f'{model_name}_{dataset}_300.pt')
+    else:
+      path = os.path.join(settings.MODEL_PATH, model_name, f'{model_name}_{dataset}_300.pt')
+      
+    checkpoint = torch.load(path)
+    model = VGG16(num_classes) if model_name == 'vgg16' else ResNet110()
+    model.load_state_dict(checkpoint['model'])
+    print(f"========== Successfully loaded {model_name} model trained using {dataset} for testing ==========")
+    return model
+
 
 def print_decos(mode):
     if mode == 'train':
@@ -205,6 +155,11 @@ def print_decos(mode):
         print("EVALUATION RESULTS")
         print("========================================\n")
 
-
+def print_results(accuracy, aurc, eaurc, pr_auc, fpr_in_tpr_95):
+    print(f"Test Accuracy: {accuracy:.2f}")
+    print(f"Area Under Risk Curve (AURC): {aurc*1000:.2f}")
+    print(f"Excessive-AURC (E-AURC): {eaurc*1000:.2f}")
+    print(f"Area Under Precision-Recall Curve (AUPR): {pr_auc*100:.2f}")
+    print(f"False Positive Rate (FPR) at 95% True Positive Rate (TPR): {fpr_in_tpr_95*100:.2f}\n")
 
 

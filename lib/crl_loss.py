@@ -41,10 +41,17 @@ class CRL:
         target_1 = idx1_cum_corr[: len(index_1)]
         target_2 = idx2_cum_corr[: len(index_2)]
 
-        greater_vals = np.array(target_1 > target_2, dtype='float')
-        lesser_vals = np.array(target_1 < target_2, dtype='float') * -1
+        greater = np.zeros_like(target_1, dtype='float')
+        lesser = np.zeros_like(target_1, dtype='float')
 
-        target = greater_vals + lesser_vals
+        np.greater(target_1, target_2, out=greater)
+        np.less(target_1, target_2, out=lesser)
+        lesser *= -1
+
+        # greater_vals = np.array(target_1 > target_2, dtype='float')
+        # lesser_vals = np.array(target_1 < target_2, dtype='float') * -1
+
+        target = greater + lesser
         target = target.ravel()
         target = torch.from_numpy(target).float().cuda()
 
@@ -54,9 +61,12 @@ class CRL:
 
         return target, margin
 
+    # ================= Increment Correctness at each Epoch ==================
     def increment_max_correctness(self, current_epoch):
         self.max_correctness += int(current_epoch+1 > 1)
 
+
+    # ========== Update Correctness Value at each Dataloader Iterate ==========
     def update_correctness(self, data_idx, correctness, logits):
         data_idx = np.array(data_idx)
         confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
@@ -82,18 +92,3 @@ class CRL:
         rank_2  += margin / (target + 1e-10)
         crl = self.ranking_criterion(rank_1, rank_2, target)
         return crl
-
-
-# class Correctness(CRL):
-#     def __init__(self):
-#       super().__init__()
-#     def increment_max_correctness(self, current_epoch):
-#         self.max_correctness += int(current_epoch+1 > 1)
-
-#     def update_correctness(self, data_idx, correctness, logits):
-#         confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
-#         self.correctness[data_idx] += correctness
-#         self.confidence[data_idx] = confidence
-
-
-

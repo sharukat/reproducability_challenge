@@ -12,3 +12,6 @@ CEL = torch.nn.CrossEntropyLoss()
 
 # Marginal Ranking Loss
 MRL = torch.nn.MarginRankingLoss(margin=0.0)
+
+# Define paths
+MODEL_PATH = '/content/drive/MyDrive/NN_Course_Project/project/models'
