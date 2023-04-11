@@ -190,7 +190,7 @@ class TrainTestModel():
 
 
             # Save model
-            if epoch+1 in settings.CHECKPOINT_EPOCHS:
+            if epoch+1 % 5 == 0:
               if is_CRL:
                 save_model(model_name, dataset, model, optimizer, scheduler, epoch, is_CRL=True)
               else:

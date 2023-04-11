@@ -14,4 +14,6 @@ CEL = torch.nn.CrossEntropyLoss()
 MRL = torch.nn.MarginRankingLoss(margin=0.0)
 
 # Define paths
-MODEL_PATH = '/content/drive/MyDrive/NN_Course_Project/project/models'
+BASE_PATH = '/content/drive/MyDrive/NN_Course_Project/project'
+MODEL_PATH  = os.path.join(BASE_PATH, 'models')
+DATA_PATH   = os.path.join(BASE_PATH, 'datasets')

@@ -118,7 +118,7 @@ def save_model(
       'optimizer':optimizer.state_dict(), 
       'scheduler':scheduler.state_dict()}
     folder_name = 'crl_models'
-    model_name = f"{checkpoint_dir}_{dataset}_{epoch+1}.pt"
+    model_name = f"{checkpoint_dir}_{dataset}.pt"
     if is_CRL:
       if not os.path.exists(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name)):
         os.makedirs(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name))
