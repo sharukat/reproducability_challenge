@@ -28,8 +28,7 @@ class TrainTestModel():
         if is_CRL:
           CRL_LOSS = CRL(ranking_criterion = settings.MRL, tr_datapoints = len(dataloader.dataset))
 
-        for im, label in dataloader:
-            idx = [i for i, data in enumerate(label)]
+        for im, label, idx in dataloader:
             im, label = im.to(device), label.to(device)
             logits = model(im)
 
@@ -92,22 +91,19 @@ class TrainTestModel():
         # Defining losses
         CEL = torch.nn.CrossEntropyLoss()
         if is_CRL:
-          MRL = torch.nn.MarginRankingLoss(margin=0.0)
-          CRL_LOSS = CRL(ranking_criterion = MRL)
-
-        with torch.inference_mode():
-            for batch, (X, labels) in enumerate(dataloader):
-                idx = [i for i, X in enumerate(labels)]
+          CRL_LOSS = CRL(ranking_criterion = settings.MRL, tr_datapoints = len(dataloader.dataset))
+        
+        with torch.no_grad():
+            for X, labels, idx in dataloader:
                 X, labels = X.to(device), labels.to(device)
                 test_logits = model(X)
 
                 if is_CRL:
                   crl = CRL_LOSS.correctness_ranking_loss(test_logits, idx)
-                  loss = CEL(test_logits, labels) + crl
+                  loss = settings.CEL(test_logits, labels) + crl
                 else:
-                  loss = CEL(test_logits, labels)
+                  loss = settings.CEL(test_logits, labels)
 
-                # loss = loss_fn(test_logits, labels)
                 test_loss += loss.item()
 
                 # Calculate and accumulate accuracy
@@ -190,7 +186,7 @@ class TrainTestModel():
 
 
             # Save model
-            if epoch+1 % 5 == 0:
+            if epoch+1 in settings.CHECKPOINT_EPOCHS:
               if is_CRL:
                 save_model(model_name, dataset, model, optimizer, scheduler, epoch, is_CRL=True)
               else:

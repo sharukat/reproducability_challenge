@@ -9,14 +9,6 @@ class CRL:
     ===================================================================
     Correctness Ranking Loss (CRL)
     ===================================================================
-
-    CRL computes the ordinal ranking of confidence estimates/
-    
-    Args:
-    preds           : Prediction output of the model before softmax
-
-    Returns:
-    xxx
     """
 
     def __init__(self, ranking_criterion, tr_datapoints):
@@ -48,9 +40,6 @@ class CRL:
         np.less(target_1, target_2, out=lesser)
         lesser *= -1
 
-        # greater_vals = np.array(target_1 > target_2, dtype='float')
-        # lesser_vals = np.array(target_1 < target_2, dtype='float') * -1
-
         target = greater + lesser
         target = target.ravel()
         target = torch.from_numpy(target).float().cuda()
@@ -72,23 +61,20 @@ class CRL:
         confidence = torch.argmax(torch.softmax(logits, dim=1), dim=1)
         self.correctness[data_idx] += correctness.cpu().detach().numpy()
         self.confidences[data_idx] = confidence.cpu().detach().numpy()
-
-
-    # ============== Compute Confidence using Margin Estimator ===============
-    def margin(self, logits):
-        top_probs, _  = torch.topk(F.softmax(logits, dim=1), 2, dim=1)
-        confidence    = top_probs[:, 0] - top_probs[:, 1]
-        return confidence
         
 
     # ================== Compute Correctness Ranking Loss ====================
     def correctness_ranking_loss(self, logits, idx):
-        confidence = self.margin(logits)
+        conf = F.softmax(logits, dim =1)
+        confidence, _ = conf.max(dim=1)
+
         rank_1  = confidence
         rank_2  = torch.roll(confidence, -1)
-        index_1 = torch.tensor(idx)
+        index_1 = idx
+        # index_1 = torch.tensor(idx)
         index_2 = torch.roll(index_1, -1)
         target, margin = self.compute_margin(index_1, index_2)
-        rank_2  += margin / (target + 1e-10)
+        target_clone =  target.clone().clamp(min=1)
+        rank_2  += margin / target_clone
         crl = self.ranking_criterion(rank_1, rank_2, target)
         return crl

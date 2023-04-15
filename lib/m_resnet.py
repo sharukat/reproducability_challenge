@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
     
@@ -5,11 +6,15 @@ import torch.nn as nn
 
 def initialize_weights(module):
     if isinstance(module, nn.Conv2d):
-        nn.init.kaiming_normal_(module.weight.data, mode='fan_out')
+        n = module.kernel_size[0] * module.kernel_size[1] * module.out_channels
+        module.weight.data.normal_(0, math.sqrt(2. / n))
+        if module.bias is not None:
+            module.bias.data.zero_()
     elif isinstance(module, nn.BatchNorm2d):
         module.weight.data.fill_(1)
         module.bias.data.zero_()
     elif isinstance(module, nn.Linear):
+        module.weight.data.normal_(0, 0.01)
         module.bias.data.zero_()
 
 

@@ -3,8 +3,38 @@ import math
 import torch.nn as nn
 from torchvision import models
 
+def initialize_weights(module):
+    if isinstance(module, nn.Conv2d):
+        n = module.kernel_size[0] * module.kernel_size[1] * module.out_channels
+        module.weight.data.normal_(0, math.sqrt(2. / n))
+        if module.bias is not None:
+            module.bias.data.zero_()
+    elif isinstance(module, nn.BatchNorm2d):
+        module.weight.data.fill_(1)
+        module.bias.data.zero_()
+    elif isinstance(module, nn.Linear):
+        module.weight.data.normal_(0, 0.01)
+        module.bias.data.zero_()
+
 
 class VGG16(nn.Module):
+    """
+    ==========================================================================
+    A PyTorch implementation of VGG16 architecture for image classification.
+    ==========================================================================
+
+    Args:
+    num_classes (int): The number of output classes.
+
+    Attributes:
+    features (nn.Sequential): The convolutional layers of the VGG16 architecture.
+    classifier (nn.Sequential): The fully connected layers of the VGG16 architecture.
+    num_classes (int): The number of output classes.
+
+    Methods:
+    forward(x): The forward pass of the VGG16 architecture.
+    """
+
     def __init__(self, num_classes):
       super(VGG16, self).__init__()
       self.num_classes = num_classes
@@ -79,19 +109,8 @@ class VGG16(nn.Module):
           nn.Linear(512 , self.num_classes)
       )
 
-       # Initialize weights
-      for m in self.modules():
-          if isinstance(m, nn.Conv2d):
-              n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-              m.weight.data.normal_(0, math.sqrt(2. / n))
-              if m.bias is not None:
-                  m.bias.data.zero_()
-          elif isinstance(m, nn.BatchNorm2d):
-              m.weight.data.fill_(1)
-              m.bias.data.zero_()
-          elif isinstance(m, nn.Linear):
-              m.weight.data.normal_(0, 0.01)
-              m.bias.data.zero_()
+      # Initialize weights
+      self.apply(initialize_weights)
 
 
     def forward(self,x):

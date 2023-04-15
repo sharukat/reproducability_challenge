@@ -2,6 +2,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 import lib.global_settings as settings
+from PIL import Image
 
 class BaseTransform:
   def __init__(self):
@@ -32,16 +33,20 @@ class CIFAR10Dataset(BaseTransform):
         train = datasets.CIFAR10(
             root=settings.DATA_PATH,
             train=True,
-            download=True,
-            transform=self.train_tf)
+            download=True)
         
         test = datasets.CIFAR10(
             root=settings.DATA_PATH,
             train=False,
-            download=False,
-            transform=self.train_tf)
+            download=True)
 
-        return train, test
+        train_data = TransformedDataset(
+          train.data, train.targets, transform=self.train_tf)
+
+        test_data = TransformedDataset(
+          test.data, test.targets, transform=self.test_tf)
+
+        return train_data, test_data
 
 
 class CIFAR100Dataset(BaseTransform):
@@ -55,19 +60,41 @@ class CIFAR100Dataset(BaseTransform):
         train = datasets.CIFAR100(
             root=settings.DATA_PATH,
             train=True,
-            download=True,
-            transform=self.train_tf)
+            download=True)
         
         test = datasets.CIFAR100(
             root=settings.DATA_PATH,
             train=False,
-            download=False,
-            transform=self.train_tf)
+            download=False)
 
-        return train, test
+        train_data = TransformedDataset(
+          train.data, train.targets, transform=self.train_tf)
+
+        test_data = TransformedDataset(
+          test.data, test.targets, transform=self.test_tf)
+
+        return train_data, test_data
+
+
+class TransformedDataset:
+    def __init__(self, x, y, transform=None):
+        self.x = x
+        self.y = y
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, index):
+        image = Image.fromarray(self.x[index])
+        if self.transform is not None:
+          image = self.transform(image)
+        return image, self.y[index], index
+
 
 
 def loader(dataset_name):
+    allowed_datasets = ['CIFAR10', 'CIFAR100']
 
     if dataset_name == 'CIFAR10':
         train_data, test_data = CIFAR10Dataset().load_data()

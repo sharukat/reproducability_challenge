@@ -20,15 +20,15 @@ class MetricsComputation():
 
 
     def compute_aurc_eaurc(self):
-        sorted_preds = np.sort(self.preds)[::-1]
-        bn_labels = self.bn_labels[np.argsort(self.preds)[::-1]]
+        indices = sorted(zip(self.preds[:], self.bn_labels[:]), key=lambda x:x[0], reverse=True)
+        sorted_preds, sorted_labels = zip(*indices)
         
         # Compute risk and coverage values
         risk_vals = []
         coverage_vals = []
         num_incorrect = 0
         for i in range(len(sorted_preds)):
-            if bn_labels[i] == 0:
+            if sorted_labels[i] == 0:
               num_incorrect += 1
             risk_vals.append(num_incorrect / (i+1))
             coverage_vals.append((i+1) / len(sorted_preds))
@@ -46,8 +46,6 @@ class MetricsComputation():
         fpr_in_tpr_95 = fpr[np.argmin(np.abs(tpr-0.95))]
         aurc, eaurc = self.compute_aurc_eaurc()
         pr_auc = average_precision_score(-1 * self.bn_labels + 1, -1 * self.preds)
-
-
         return aurc, eaurc, fpr_in_tpr_95, pr_auc
 
 
@@ -118,7 +116,7 @@ def save_model(
       'optimizer':optimizer.state_dict(), 
       'scheduler':scheduler.state_dict()}
     folder_name = 'crl_models'
-    model_name = f"{checkpoint_dir}_{dataset}.pt"
+    model_name = f"{checkpoint_dir}_{dataset}_{epoch+1}.pt"
     if is_CRL:
       if not os.path.exists(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name)):
         os.makedirs(os.path.join(settings.MODEL_PATH, checkpoint_dir, folder_name))
@@ -131,6 +129,7 @@ def save_model(
     torch.save(obj=to_save, f=MODEL_SAVE_PATH)
 
 
+
 def load_trained_model(model_name:str, dataset:str, num_classes: int, is_CRL: bool = False):
     if is_CRL:
       path = os.path.join(settings.MODEL_PATH, f"{model_name}/crl_models", f'{model_name}_{dataset}_300.pt')
@@ -138,10 +137,15 @@ def load_trained_model(model_name:str, dataset:str, num_classes: int, is_CRL: bo
       path = os.path.join(settings.MODEL_PATH, model_name, f'{model_name}_{dataset}_300.pt')
       
     checkpoint = torch.load(path)
-    model = VGG16(num_classes) if model_name == 'vgg16' else ResNet110()
+    if model_name == 'vgg16' or model_name =='vgg16-new':
+      model = VGG16(num_classes)
+    else:
+      model = ResNet110(num_classes)
+    
     model.load_state_dict(checkpoint['model'])
     print(f"========== Successfully loaded {model_name} model trained using {dataset} for testing ==========")
     return model
+
 
 
 def print_decos(mode):
@@ -157,8 +161,8 @@ def print_decos(mode):
 
 def print_results(accuracy, aurc, eaurc, pr_auc, fpr_in_tpr_95):
     print(f"Test Accuracy: {accuracy:.2f}")
-    print(f"Area Under Risk Curve (AURC): {aurc*1000:.2f}")
-    print(f"Excessive-AURC (E-AURC): {eaurc*1000:.2f}")
+    print(f"Area Under Risk Curve (AURC): {aurc*100:.2f}")
+    print(f"Excessive-AURC (E-AURC): {eaurc*100:.2f}")
     print(f"Area Under Precision-Recall Curve (AUPR): {pr_auc*100:.2f}")
     print(f"False Positive Rate (FPR) at 95% True Positive Rate (TPR): {fpr_in_tpr_95*100:.2f}\n")
 
